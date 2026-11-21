@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Stack Tower</title>
+<style>
+:root{--bg1:#1b1340;--bg2:#3a1c5c;--ink:#fff4e6;--accent:#ffb84d;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;height:100%;background:var(--bg1);overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+body{font-family:"Trebuchet MS","Avenir Next",system-ui,sans-serif;color:var(--ink)}
+#wrap{position:relative;width:100%;height:100%;background:linear-gradient(var(--bg1),var(--bg2))}
+canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);left:0;right:0;text-align:center;pointer-events:none}
+#score{font-size:72px;font-weight:800;line-height:1}
+#msg{font-size:15px;height:20px;color:var(--accent);margin-top:4px}
+#panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;background:rgba(27,19,64,.78);padding:24px}
+#panel h1{font-size:44px;margin:0}
+#panel p{margin:0;max-width:260px;line-height:1.4;opacity:.9}
+#go{margin-top:12px;font:inherit;font-weight:800;font-size:20px;padding:14px 36px;border:0;border-radius:40px;background:var(--accent);color:#2a1245;cursor:pointer}
+#go:focus-visible{outline:3px solid #fff;outline-offset:3px}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="hud"><div id="score">0</div><div id="msg"></div></div>
+  <div id="panel">
+    <h1 id="title">Stack Tower</h1>
+    <p id="sub">Tap to drop each block. Overhang gets sliced off, so line it up.</p>
+    <p id="best"></p>
+    <button id="go">Play</button>
+  </div>
+</div>
+<script>
+(function(){
+var cv=document.getElementById('c'),ctx=cv.getContext('2d');
+var scoreEl=document.getElementById('score'),msgEl=document.getElementById('msg');
+var panel=document.getElementById('panel'),goBtn=document.getElementById('go');
+var titleEl=document.getElementById('title'),subEl=document.getElementById('sub'),bestEl=document.getElementById('best');
+var W,H,DPR,BH=30,best=0;
+try{best=parseInt(localStorage.getItem('stack-best')||'0',10)||0}catch(e){}
+var blocks,cur,dir,score,combo,pieces,camY,state='menu',last=0,msgT=0;
+function resize(){DPR=window.devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0)}
+window.addEventListener('resize',resize);resize();
+function hue(i){return(210+i*11)%360}
+function start(){
+  var w0=Math.min(W*0.55,240);
+  blocks=[{x:(W-w0)/2,w:w0}];score=0;combo=0;pieces=[];camY=0;dir=1;
+  spawn();state='play';panel.classList.add('hide');scoreEl.textContent='0';msgEl.textContent='';
+}
+function spawn(){var t=blocks[blocks.length-1];cur={x:dir>0?0:W-t.w,w:t.w}}
+function speed(){return Math.min(190+score*9,560)}
+function say(t){msgEl.textContent=t;msgT=0.8}
+function drop(){
+  if(state!=='play')return;
+  var t=blocks[blocks.length-1];
+  var l=Math.max(cur.x,t.x),r=Math.min(cur.x+cur.w,t.x+t.w),ov=r-l;
+  if(ov<=0){pieces.push({x:cur.x,w:cur.w,y:blocks.length,vy:0,h:hue(blocks.length)});return over()}
+  if(Math.abs(cur.x-t.x)<5){
+    combo++;cur.x=t.x;
+    if(combo>=3){cur.w=Math.min(cur.w+10,Math.min(W*0.55,240))}
+    say(combo>=3?'Perfect x'+combo+'! Block grows':'Perfect!');
+  }else{
+    combo=0;
+    if(cur.x<l)pieces.push({x:cur.x,w:l-cur.x,y:blocks.length,vy:0,h:hue(blocks.length)});
+    else pieces.push({x:r,w:cur.x+cur.w-r,y:blocks.length,vy:0,h:hue(blocks.length)});
+    cur.x=l;cur.w=ov;
+  }
+  blocks.push({x:cur.x,w:cur.w});score++;scoreEl.textContent=score;
+  dir=-dir;spawn();
+}
+function over(){
+  state='over';
+  var nb=score>best;
+  if(nb){best=score;try{localStorage.setItem('stack-best',String(best))}catch(e){}}
+  titleEl.textContent=score+' blocks';
+  subEl.textContent=nb&&score>0?'New best! Can you beat it?':'Tap Play to try again.';
+  bestEl.textContent='Best: '+best;
+  goBtn.textContent='Play again';
+  setTimeout(function(){panel.classList.remove('hide')},500);
+}
+function frame(ts){
+  var dt=Math.min((ts-last)/1000||0,0.05);last=ts;
+  if(state==='play'){
+    cur.x+=dir*speed()*dt;
+    if(cur.x<=0){cur.x=0;dir=1}
+    if(cur.x+cur.w>=W){cur.x=W-cur.w;dir=-1}
+  }
+  var target=Math.max(0,(blocks?blocks.length-7:0)*BH);
+  camY+=(target-camY)*Math.min(1,dt*5);
+  if(msgT>0){msgT-=dt;if(msgT<=0)msgEl.textContent=''}
+  if(pieces)pieces.forEach(function(p){p.vy+=1800*dt;p.y-=0;p.fall=(p.fall||0)+p.vy*dt});
+  draw();requestAnimationFrame(frame);
+}
+function sy(i){return H*0.78-i*BH+camY}
+var WORD='EXCELLENT';
+function box(x,i,w,h,fall,ch){
+  var y=sy(i)+(fall||0);
+  ctx.fillStyle='#ffffff';ctx.fillRect(x,y,w,BH-2);
+  ctx.fillStyle='rgba(120,100,180,.25)';ctx.fillRect(x,y+BH-8,w,6);
+  if(ch&&w>=22){ctx.fillStyle='#2a1245';ctx.font='800 19px "Trebuchet MS",system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(ch,x+w/2,y+(BH-2)/2+1)}
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  if(!blocks)return;
+  blocks.forEach(function(b,i){box(b.x,i,b.w,0,0,WORD[i%WORD.length])});
+  if(state==='play')box(cur.x,blocks.length,cur.w,0,0,WORD[blocks.length%WORD.length]);
+  pieces=pieces.filter(function(p){return sy(p.y)+p.fall<H+60});
+  pieces.forEach(function(p){ctx.globalAlpha=.85;box(p.x,p.y,p.w,p.h,p.fall);ctx.globalAlpha=1});
+}
+function press(e){if(state==='play'){e.preventDefault();drop()}}
+cv.addEventListener('pointerdown',press);
+document.addEventListener('keydown',function(e){
+  if(e.code==='Space'){e.preventDefault();if(state==='play')drop();else if(state!=='play'&&!panel.classList.contains('hide'))start()}
+});
+goBtn.addEventListener('click',start);
+bestEl.textContent=best?'Best: '+best:'';
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
